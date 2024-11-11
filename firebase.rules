@@ -1,0 +1,44 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function hasApprovedAccess(candidateId) {
+      return exists(/databases/$(database)/documents/accessRequests/$(request.auth.uid)_$(candidateId)) &&
+        get(/databases/$(database)/documents/accessRequests/$(request.auth.uid)_$(candidateId)).data.status == 'approved';
+    }
+
+    // Access Requests
+    match /accessRequests/{requestId} {
+      allow create: if isAuthenticated();
+      allow read: if isAuthenticated() && 
+        (resource.data.recruiterId == request.auth.uid || 
+         resource.data.candidateId == request.auth.uid);
+      allow update: if isAuthenticated() && 
+        resource.data.candidateId == request.auth.uid;
+    }
+
+    // Candidate Profiles
+    match /candidateProfiles/{candidateId} {
+      allow read: if isAuthenticated() && 
+        (isOwner(candidateId) || hasApprovedAccess(candidateId));
+      allow write: if isAuthenticated() && isOwner(candidateId);
+    }
+
+    // Profile Embeddings
+    match /profileEmbeddings/{embeddingId} {
+      allow read: if isAuthenticated() && 
+        (isOwner(resource.data.userId) || 
+         hasApprovedAccess(resource.data.userId));
+      allow write: if isAuthenticated() && 
+        isOwner(request.resource.data.userId);
+    }
+  }
+}
